@@ -88,8 +88,27 @@ email_generator.py  → Generates cold outreach email (Groq Llama → DeepSeek �
 For each lead:
 
 - **HTML file**: Saved to `/tmp/lead-to-site/{run_id}/{lead_id}.html`
-- **Vercel URL**: Live at `https://{slug}-{hash}.vercel.app`
+- **Vercel URL**: Live at `https://{slug}-{timestamp}.vercel.app` (publicly accessible, short-form URL)
 - **Email**: Subject + plain-text body + HTML body, ready to copy or import into SmartLead
+
+### URL Pattern
+
+Vercel deploys are accessible via a short public URL:
+```
+https://{project_name}-{timestamp}.vercel.app
+```
+e.g. `https://activecampaign-174257.vercel.app`
+
+The team-scoped URL (ending in `theakpanobong-4550s-projects.vercel.app`) requires Vercel login — the pipeline automatically returns the short-form public URL.
+
+### CSV-First Scraping
+
+The pipeline skips website scraping if your CSV already has enough lead data:
+- **3+ rich fields** (industry, location, services, tagline, brand_color) → full skip (saves 5-15s per lead)
+- **website_url missing** → skipped
+- **`skip_scrape=true`** column → force skip
+
+This dramatically reduces scraping costs and time.
 
 ---
 
