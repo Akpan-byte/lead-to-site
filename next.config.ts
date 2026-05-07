@@ -4,12 +4,11 @@ const nextConfig: NextConfig = {
   typescript: {
     ignoreBuildErrors: true,
   },
-  // GitHub Pages requires static export — no server-side features
-  output: 'export',
+  // API routes require server-side rendering — do NOT use output: 'export'
   images: {
     unoptimized: true,
   },
-  // GitHub Pages base path
+  // GitHub Pages base path (remove if deploying to Vercel)
   basePath: '/lead-to-site',
   assetPrefix: '/lead-to-site/',
 };

@@ -53,6 +53,8 @@ export interface SSEEvent {
   vercel_url?: string;
   html_size?: number;
   total?: number;
+  email_subject?: string;
+  email_body?: string;
 }
 
 export interface LeadProgress {
@@ -63,6 +65,8 @@ export interface LeadProgress {
   vercel_url?: string;
   html_size?: number;
   error?: string;
+  email_subject?: string;
+  email_body?: string;
 }
 
 // ─── API Response Types ──────────────────────────────────────────────────────
@@ -90,6 +94,8 @@ export interface PipelineResult {
   html_size?: number;
   final_url?: string;
   error?: string;
+  email_subject?: string;
+  email_body?: string;
   steps: {
     scrape?: PipelineStep;
     generate_html?: PipelineStep;
@@ -119,4 +125,5 @@ export interface ResultsResponse {
 export interface AppSettings {
   vercel_token: string;
   deepseek_key: string;
+  groq_key: string;
 }

@@ -4,6 +4,9 @@ import { writeFile, mkdir } from 'fs/promises';
 import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 
+// Force dynamic — cannot be statically exported since this is a streaming SSE endpoint
+export const dynamic = 'force-dynamic';
+
 // ─── Inline types ─────────────────────────────────────────────────────────────
 
 interface Lead {
@@ -43,6 +46,8 @@ interface SSEEvent {
   url?: string;
   vercel_url?: string;
   html_size?: number;
+  email_subject?: string;
+  email_body?: string;
 }
 
 // ─── In-memory store ──────────────────────────────────────────────────────────

@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import { readFile } from 'fs/promises';
 import { existsSync } from 'fs';
 
+export const dynamic = 'force-dynamic';
+
 export async function GET() {
   const path = '/config/lead-to-site/sample_leads.csv';
   if (!existsSync(path)) {

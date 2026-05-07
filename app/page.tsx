@@ -56,13 +56,14 @@ async function getRunStatus(runId: string) {
 
 // ─── Settings Modal ───────────────────────────────────────────────────────────
 
-function SettingsModal({ open, onClose, onSave, vercelToken, deepseekKey }: {
+function SettingsModal({ open, onClose, onSave, vercelToken, deepseekKey, groqKey }: {
   open: boolean; onClose: () => void;
-  onSave: (v: string, d: string) => void;
-  vercelToken: string; deepseekKey: string;
+  onSave: (v: string, d: string, g: string) => void;
+  vercelToken: string; deepseekKey: string; groqKey: string;
 }) {
   const [v, setV] = useState(vercelToken);
   const [d, setD] = useState(deepseekKey);
+  const [g, setG] = useState(groqKey);
 
   if (!open) return null;
 
@@ -98,10 +99,24 @@ function SettingsModal({ open, onClose, onSave, vercelToken, deepseekKey }: {
               type="password"
               value={d}
               onChange={e => setD(e.target.value)}
-              placeholder="sk-xxxxxxxxxxxx"
+              placeholder="***"
               className="w-full bg-surface-2 border border-border rounded-lg px-3 py-2.5 text-sm text-text placeholder-text-muted focus:outline-none focus:border-accent transition-colors"
             />
             <p className="text-[11px] text-text-muted mt-1">Optional — for AI-powered content personalization</p>
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-text-muted mb-1.5 uppercase tracking-wider">
+              Groq API Key
+            </label>
+            <input
+              type="password"
+              value={g}
+              onChange={e => setG(e.target.value)}
+              placeholder="gsk_••••••"
+              className="w-full bg-surface-2 border border-border rounded-lg px-3 py-2.5 text-sm text-text placeholder-text-muted focus:outline-none focus:border-accent transition-colors"
+            />
+            <p className="text-[11px] text-text-muted mt-1">Free at groq.com — uses Llama 3.3 70B</p>
           </div>
 
           <div className="bg-surface-2 rounded-lg p-3 border border-border">
@@ -119,7 +134,7 @@ function SettingsModal({ open, onClose, onSave, vercelToken, deepseekKey }: {
             Cancel
           </button>
           <button
-            onClick={() => { onSave(v, d); onClose(); }}
+            onClick={() => { onSave(v, d, g); onClose(); }}
             className="flex-1 px-4 py-2.5 rounded-lg bg-accent hover:bg-accent-hover text-white text-sm font-medium transition-colors"
           >
             Save
@@ -230,7 +245,7 @@ function LeadRow({ lp }: { lp: LeadProgress }) {
         )}
       </div>
 
-      {/* URL */}
+      {/* URL & Email */}
       {lp.vercel_url && (
         <a
           href={lp.vercel_url}
@@ -240,6 +255,20 @@ function LeadRow({ lp }: { lp: LeadProgress }) {
         >
           View →
         </a>
+      )}
+      {lp.email_subject && (
+        <button
+          onClick={() => {
+            const subject = lp.email_subject || '';
+            const body = lp.email_body || '';
+            const text = body ? `Subject: ${subject}\n\n${body}` : `Subject: ${subject}`;
+            navigator.clipboard.writeText(text).catch(() => {});
+            alert(`Email copied!\n\nSubject: ${subject}`);
+          }}
+          className="shrink-0 text-[11px] px-2.5 py-1 rounded-md bg-info/10 text-info hover:bg-info/20 transition-colors font-medium cursor-pointer"
+        >
+          Copy Email
+        </button>
       )}
     </div>
   );
@@ -314,6 +343,7 @@ export default function Home() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [vercelToken, setVercelToken] = useState('');
   const [deepseekKey, setDeepseekKey] = useState('');
+  const [groqKey, setGroqKey] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [dragFile, setDragFile] = useState<File | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
@@ -326,6 +356,7 @@ export default function Home() {
       .then(d => {
         if (d.vercel_token) setVercelToken(d.vercel_token);
         if (d.deepseek_key) setDeepseekKey(d.deepseek_key);
+        if (d.groq_key) setGroqKey(d.groq_key);
       })
       .catch(() => {});
   }, []);
@@ -412,8 +443,8 @@ export default function Home() {
             return {
               ...prev,
               [event.id!]: existing
-                ? { ...existing, status: event.status as LeadProgress['status'], vercel_url: event.vercel_url, html_size: event.html_size, error: event.error }
-                : { id: event.id!, company: event.company || event.id!, status: event.status as LeadProgress['status'], vercel_url: event.vercel_url, html_size: event.html_size, error: event.error },
+                ? { ...existing, status: event.status as LeadProgress['status'], vercel_url: event.vercel_url, html_size: event.html_size, error: event.error, email_subject: (event as any).email_subject, email_body: (event as any).email_body }
+                : { id: event.id!, company: event.company || event.id!, status: event.status as LeadProgress['status'], vercel_url: event.vercel_url, html_size: event.html_size, error: event.error, email_subject: (event as any).email_subject, email_body: (event as any).email_body },
             };
           });
         }
@@ -426,13 +457,14 @@ export default function Home() {
     };
   }
 
-  function handleSaveSettings(v: string, d: string) {
+  function handleSaveSettings(v: string, d: string, g: string) {
     setVercelToken(v);
     setDeepseekKey(d);
+    setGroqKey(g);
     fetch('/api/settings', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ vercel_token: v, deepseek_key: d }),
+      body: JSON.stringify({ vercel_token: v, deepseek_key: d, groq_key: g }),
     }).catch(() => {});
   }
 
@@ -630,6 +662,7 @@ export default function Home() {
         onSave={handleSaveSettings}
         vercelToken={vercelToken}
         deepseekKey={deepseekKey}
+        groqKey={groqKey}
       />
     </div>
   );
