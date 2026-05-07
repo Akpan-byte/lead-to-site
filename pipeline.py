@@ -405,8 +405,15 @@ def process_csv(csv_path: str, vercel_token: str = None, skip_deploy: bool = Fal
         # Save results
         if output_json:
             with open(output_json, 'w') as f:
-                json.dump(results, f, indent=2, default=str)
+                json.dump(results, f, indent=2)
             print(f"\n  Results saved to: {output_json}")
+
+        # Always save results.json to output_dir (for dashboard status page)
+        if output_dir:
+            os.makedirs(output_dir, exist_ok=True)
+            results_json_path = os.path.join(output_dir, 'results.json')
+            with open(results_json_path, 'w') as f:
+                json.dump(results, f, indent=2)
 
     return results
 
