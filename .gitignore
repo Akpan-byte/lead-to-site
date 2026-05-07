@@ -47,3 +47,4 @@ venv/
 /tmp/lead-to-site/
 *.html
 !sample_leads.csv
+.vercel

@@ -82,6 +82,7 @@ def deploy_to_vercel(html_content: str, project_name: str, vercel_token: str = N
             'devCommand': None,
         },
         'target': 'production',
+        'public': True,  # make publicly accessible (no Vercel auth required)
     }).encode('utf-8')
 
     req = urllib.request.Request(
@@ -97,9 +98,16 @@ def deploy_to_vercel(html_content: str, project_name: str, vercel_token: str = N
     try:
         with urllib.request.urlopen(req, timeout=60) as resp:
             result = json.loads(resp.read().decode('utf-8'))
+            vercel_url = result.get('url', project_name + '.vercel.app')
+            # Use SHORT URL (not team-scoped) so it's publicly accessible
+            # e.g. "activecampaign-174257-aaa-bbb-theakpanobong-4550s-projects.vercel.app"
+            #       -> "activecampaign-174257.vercel.app"
+            import re
+            m = re.match(r'^([a-z0-9]+-\d+)-', vercel_url.split('.')[0])
+            short = m.group(1) + '.vercel.app' if m else vercel_url
             return {
                 'success': True,
-                'url': f"https://{result.get('url', project_name + '.vercel.app')}",
+                'url': f'https://{short}',
                 'deployment_id': result.get('id', ''),
                 'status': result.get('status', 'READY'),
             }
@@ -135,6 +143,49 @@ def slugify(text: str) -> str:
     text = re.sub(r'[^\w\s-]', '', text)
     text = re.sub(r'[-\s]+', '-', text)
     return text[:50].strip('-')
+
+
+def csv_has_enough_data(lead: dict) -> tuple[bool, str]:
+    """
+    Determine if CSV has enough info to skip website scraping.
+    Returns (skip, reason) tuple.
+    Skip scraping if CSV has 3+ rich data fields (services, tagline, description,
+    industry, title) or if website_url is a placeholder.
+    """
+    # Explicit override
+    skip_marker = str(lead.get('skip_scrape', '')).lower().strip()
+    if skip_marker in ('true', '1', 'yes'):
+        return True, 'explicit skip_scrape=True in CSV'
+
+    score = 0
+    rich_fields = []
+    if lead.get('services', '').strip():
+        score += 1; rich_fields.append('services')
+    if lead.get('tagline', '').strip():
+        score += 1; rich_fields.append('tagline')
+    if lead.get('about_text', '').strip() or lead.get('description', '').strip():
+        score += 1; rich_fields.append('description')
+    if lead.get('industry', '').strip():
+        score += 1; rich_fields.append('industry')
+    if lead.get('title', '').strip():
+        score += 1; rich_fields.append('title')
+
+    if score >= 3:
+        return True, f'CSV rich data ({len(rich_fields)} fields: {", ".join(rich_fields)})'
+
+    # Check for placeholder URLs
+    url = lead.get('website_url', '').lower()
+    fake_patterns = ('example.com','test.com','yourdomain.com','your-site.com',
+                     'mysite.com','website.com','domain.com','yourcompany.com',
+                     'company.com','.local','localhost','yourbrand.com',
+                     'business.com','site.com','https://')
+    if url:
+        if any(p in url for p in fake_patterns) and not url.startswith('http'):
+            return True, 'website_url is a placeholder'
+        if url.startswith('http') and any(p in url for p in ('example.com','test.com','localhost')):
+            return True, 'website_url is a test placeholder'
+
+    return False, f'only {len(rich_fields)} rich fields — will scrape website'
 
 
 # ─── Main Pipeline ───────────────────────────────────────────────────────────
@@ -173,12 +224,13 @@ def process_lead(lead: dict, vercel_token: str = None, skip_deploy: bool = False
         else:
             print(f"\n  [1/4] Processing: {lead.get('company_name', 'unknown')}")
 
-        # ── Step 1: Scrape website ──────────────────────────────────────────
-        if scrape_enabled and lead.get('website_url'):
+        # ── Step 1: Scrape website (CSV-first — skip if enough data already) ────
+        skip_scrape, skip_reason = csv_has_enough_data(lead)
+        if scrape_enabled and lead.get('website_url') and not skip_scrape:
             if json_output:
                 emit('scraping', {'url': lead['website_url']})
             else:
-                print(f"\n  [1/4] Scraping site: {lead['website_url']}")
+                print(f"  [1/4] Scraping site: {lead['website_url']}")
             scraped = scrape_site(lead['website_url'])
             if scraped.get('success'):
                 lead = merge_scraped_with_lead(scraped, lead)
@@ -187,8 +239,10 @@ def process_lead(lead: dict, vercel_token: str = None, skip_deploy: bool = False
                 result['steps']['scrape'] = {'status': 'skipped', 'reason': scraped.get('error', 'unknown')}
                 print(f"  [scrape] Skipped/failed: {scraped.get('error')}")
         else:
-            result['steps']['scrape'] = {'status': 'skipped', 'reason': 'no website_url or scrape disabled'}
-            print(f"  [1/4] Skipping scrape (no URL or disabled)")
+            reason = skip_reason if skip_scrape else 'no website_url or scrape disabled'
+            result['steps']['scrape'] = {'status': 'skipped', 'reason': reason}
+            if not json_output:
+                print(f"  [1/4] Skipping scrape: {reason}")
 
         # ── Step 2: Generate Website HTML ─────────────────────────────────
         if json_output:
