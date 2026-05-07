@@ -82,7 +82,6 @@ def deploy_to_vercel(html_content: str, project_name: str, vercel_token: str = N
             'devCommand': None,
         },
         'target': 'production',
-        'forceNew': True,
     }).encode('utf-8')
 
     req = urllib.request.Request(
