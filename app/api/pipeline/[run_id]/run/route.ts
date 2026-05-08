@@ -20,11 +20,15 @@ interface Lead {
 interface LeadProgress {
   id: string;
   company: string;
-  status: 'idle' | 'queued' | 'scraping' | 'generating' | 'deploying' | 'done' | 'error';
+  status: 'idle' | 'queued' | 'scraping' | 'generating' | 'deploying' | 'sending' | 'done' | 'error';
   vercel_url?: string;
   html_size?: number;
   error?: string;
   url?: string;
+  email_subject?: string;
+  email_body?: string;
+  send_status?: 'pending_gmail' | 'sent' | 'failed';
+  send_error?: string;
 }
 
 interface PipelineResult {
@@ -36,6 +40,10 @@ interface PipelineResult {
   final_url?: string;
   error?: string;
   steps: Record<string, unknown>;
+  email_subject?: string;
+  email_body?: string;
+  send_status?: 'pending_gmail' | 'sent' | 'failed';
+  send_error?: string;
 }
 
 interface SSEEvent {
@@ -48,6 +56,8 @@ interface SSEEvent {
   html_size?: number;
   email_subject?: string;
   email_body?: string;
+  send_status?: 'pending_gmail' | 'sent' | 'failed';
+  send_error?: string;
 }
 
 // ─── In-memory store ──────────────────────────────────────────────────────────
@@ -132,19 +142,43 @@ export async function POST(
 
         const vercelToken = process.env.VERCEL_API_TOKEN || '';
         const deepseekKey = process.env.DEEPSEEK_API_KEY || '';
+        const groqKey = process.env.GROQ_API_KEY || '';
+        // Load Gmail config
+        let gmailEmail = '';
+        let gmailAppPassword = '';
+        const cfgPath = '/tmp/lead-to-site/config.json';
+        if (existsSync(cfgPath)) {
+          try {
+            const cfgData = JSON.parse(readFileSync(cfgPath, 'utf-8'));
+            gmailEmail = cfgData.gmail_email || '';
+            gmailAppPassword = cfgData.gmail_app_password || '';
+          } catch { /* ignore */ }
+        }
         const env: Record<string, string> = {
           ...process.env as Record<string, string>,
           PYTHONUNBUFFERED: '1',
         };
         if (vercelToken) env.VERCEL_API_TOKEN = vercelToken;
         if (deepseekKey) env.DEEPSEEK_API_KEY = deepseekKey;
+        if (groqKey) env.GROQ_API_KEY = groqKey;
 
         const pythonProcess = spawn('python3', [
           '/config/lead-to-site/pipeline.py',
           '--csv', csvPath,
           '--json-output',
           '--output-dir', outputDir,
-        ], { env });
+        ], {
+          env: {
+            ...process.env as Record<string, string>,
+            PYTHONUNBUFFERED: '1',
+            VERCEL_API_TOKEN: vercelToken,
+            DEEPSEEK_API_KEY: deepseekKey,
+            GROQ_API_KEY: groqKey,
+            // Pass Gmail config directly so pipeline.py doesn't need to re-read it
+            GMAIL_EMAIL: gmailEmail,
+            GMAIL_APP_PASSWORD: gmailAppPassword,
+          },
+        });
 
         let lineBuffer = '';
 
@@ -169,7 +203,7 @@ export async function POST(
                 const statusMap: Record<string, LeadProgress['status']> = {
                   queued: 'queued', scraping: 'scraping',
                   generating: 'generating', deploying: 'deploying',
-                  done: 'done', complete: 'done',
+                  sending: 'sending', done: 'done', complete: 'done',
                 };
                 const uiStatus = statusMap[event.status] || 'idle';
                 runData!.leadProgress[event.id].status = uiStatus;
@@ -177,6 +211,14 @@ export async function POST(
                 if (event.html_size) runData!.leadProgress[event.id].html_size = event.html_size;
                 if (event.error) runData!.leadProgress[event.id].error = event.error;
                 if (event.url) runData!.leadProgress[event.id].url = event.url;
+                if (event.email_subject) runData!.leadProgress[event.id].email_subject = event.email_subject;
+                if (event.email_body) runData!.leadProgress[event.id].email_body = event.email_body;
+                if (event.send_status) runData!.leadProgress[event.id].send_status = event.send_status;
+                if (event.send_error) runData!.leadProgress[event.id].send_error = event.send_error;
+                // 'sent' event is the final event — update to 'done' with send info
+                if (event.status === 'sent') {
+                  runData!.leadProgress[event.id].status = 'done';
+                }
                 pipelineRuns.set(runId, runData!);
               }
 

@@ -26,6 +26,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from website_template import generate_website
 from email_generator import generate_email, generate_email_with_ai
 from site_scraper import scrape_site, merge_scraped_with_lead
+from gmail_sender import send_from_pipeline
 
 # ─── Vercel Deploy ───────────────────────────────────────────────────────────
 
@@ -205,6 +206,29 @@ def process_lead(lead: dict, vercel_token: str = None, skip_deploy: bool = False
         'error': None,
     }
 
+    # Load config (gmail credentials, AI keys)
+    config = {
+        'vercel_token': vercel_token,
+        'lead': lead,
+        # Env vars override config file
+        'gmail_email': os.environ.get('GMAIL_EMAIL', ''),
+        'gmail_app_password': os.environ.get('GMAIL_APP_PASSWORD', ''),
+        'vercel_token': os.environ.get('VERCEL_API_TOKEN') or os.environ.get('VERCEL_TOKEN') or vercel_token,
+    }
+    config_path = '/tmp/lead-to-site/config.json'
+    if os.path.exists(config_path):
+        try:
+            with open(config_path) as f:
+                file_cfg = json.load(f)
+                # File config supplements (env vars already set above take precedence)
+                for key in ('gmail_email', 'gmail_app_password', 'vercel_token', 'groq_key', 'deepseek_key', 'from_name'):
+                    if not config.get(key) and file_cfg.get(key):
+                        config[key] = file_cfg[key]
+        except:
+            pass
+    # Make lead available in config for send_from_pipeline
+    config['lead'] = lead
+
     def emit(status, extra=None):
         """Emit a JSON status line for SSE streaming."""
         if json_output:
@@ -313,25 +337,74 @@ def process_lead(lead: dict, vercel_token: str = None, skip_deploy: bool = False
             result['email'] = email_result
             if not json_output:
                 print(f"  [4/4] Email subject: {email_result['subject']} ({email_result['method']})")
-            if json_output:
-                emit('done', {
-                    'vercel_url': result.get('final_url'),
-                    'html_size': html_size,
-                    'email_subject': email_result['subject'],
-                    'email_body': email_result['body'],
-                })
+            # NOTE: don't emit done here — Gmail step comes next and needs to close SSE
         except Exception as e:
             result['steps']['email'] = {'status': 'failed', 'error': str(e)}
             if not json_output:
                 print(f"  [email] FAILED: {e}")
+            # Fall through to Gmail step — don't emit done yet
+
+        # ── Step 5: Send via Gmail (placeholder — Smartlead integration coming) ──
+        gmail_email = config.get('gmail_email', '')
+        gmail_password = config.get('gmail_app_password', '')
+
+        if gmail_email and gmail_password and result.get('final_url'):
+            # Inject email_data into result so send_from_pipeline can use it
+            result['email_data'] = result.get('email', {})
+
             if json_output:
-                emit('done', {
+                emit('sending')
+
+            send_res = send_from_pipeline(result, config)
+
+            if send_res.get('success'):
+                result['steps']['gmail_send'] = {
+                    'status': 'sent',
+                    'to': send_res.get('to'),
+                    'from': send_res.get('from'),
+                    'subject': send_res.get('subject'),
+                }
+                result['send_status'] = 'sent'
+                if json_output:
+                    emit('sent', {
+                        'vercel_url': result.get('final_url'),
+                        'html_size': html_size,
+                        'send_status': 'sent',
+                        'email_subject': result.get('email', {}).get('subject'),
+                        'email_body': result.get('email', {}).get('body'),
+                    })
+            else:
+                result['steps']['gmail_send'] = {
+                    'status': 'failed',
+                    'error': send_res.get('error'),
+                }
+                result['send_status'] = 'failed'
+                result['send_error'] = send_res.get('error')
+                if json_output:
+                    emit('sent', {
+                        'vercel_url': result.get('final_url'),
+                        'html_size': html_size,
+                        'send_status': 'failed',
+                        'send_error': send_res.get('error'),
+                        'email_subject': result.get('email', {}).get('subject'),
+                        'email_body': result.get('email', {}).get('body'),
+                    })
+        elif not gmail_email or not gmail_password:
+            result['steps']['gmail_send'] = {
+                'status': 'skipped',
+                'reason': 'Gmail not configured — add in Settings',
+            }
+            result['send_status'] = 'pending_gmail'
+            if json_output:
+                emit('sent', {
                     'vercel_url': result.get('final_url'),
                     'html_size': html_size,
-                    'email_subject': None,
+                    'send_status': 'pending_gmail',
+                    'email_subject': result.get('email', {}).get('subject'),
+                    'email_body': result.get('email', {}).get('body'),
                 })
 
-        # ── Step 4: Output ready for Smartlead ─────────────────────────────
+        # ── Step 6: Smartlead-ready payload ─────────────────────────────────
         result['steps']['smartlead_ready'] = {
             'status': 'ready',
             'message': 'Lead processed. Pass to Smartlead for outreach.',

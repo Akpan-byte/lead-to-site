@@ -41,8 +41,11 @@ export type LeadStatus =
   | 'scraping'
   | 'generating'
   | 'deploying'
+  | 'sending'
   | 'done'
   | 'error';
+
+export type SendStatus = 'pending_gmail' | 'sent' | 'failed';
 
 export interface SSEEvent {
   id?: string;
@@ -55,6 +58,8 @@ export interface SSEEvent {
   total?: number;
   email_subject?: string;
   email_body?: string;
+  send_status?: SendStatus;
+  send_error?: string;
 }
 
 export interface LeadProgress {
@@ -67,6 +72,8 @@ export interface LeadProgress {
   error?: string;
   email_subject?: string;
   email_body?: string;
+  send_status?: SendStatus;
+  send_error?: string;
 }
 
 // ─── API Response Types ──────────────────────────────────────────────────────
@@ -78,7 +85,7 @@ export interface UploadResponse {
 }
 
 export interface PipelineStep {
-  status: 'ok' | 'skipped' | 'failed';
+  status: 'ok' | 'skipped' | 'failed' | 'sent';
   reason?: string;
   error?: string;
   size_bytes?: number;
@@ -96,10 +103,14 @@ export interface PipelineResult {
   error?: string;
   email_subject?: string;
   email_body?: string;
+  send_status?: SendStatus;
+  send_error?: string;
   steps: {
     scrape?: PipelineStep;
     generate_html?: PipelineStep;
     vercel_deploy?: PipelineStep;
+    email?: PipelineStep;
+    gmail_send?: PipelineStep;
     smartlead_ready?: PipelineStep;
   };
 }
@@ -126,4 +137,6 @@ export interface AppSettings {
   vercel_token: string;
   deepseek_key: string;
   groq_key: string;
+  gmail_email: string;
+  gmail_app_password: string;
 }

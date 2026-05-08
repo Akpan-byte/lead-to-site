@@ -8,16 +8,24 @@ const CONFIG_PATH = '/tmp/lead-to-site/config.json';
 export async function GET() {
   try {
     if (!existsSync(CONFIG_PATH)) {
-      return NextResponse.json({ vercel_token: '', deepseek_key: '', groq_key: '' });
+      return NextResponse.json({
+        vercel_token: '', deepseek_key: '', groq_key: '',
+        gmail_email: '', gmail_app_password: '',
+      });
     }
     const data = JSON.parse(await readFile(CONFIG_PATH, 'utf-8'));
     return NextResponse.json({
       vercel_token: data.vercel_token || '',
       deepseek_key: data.deepseek_key || '',
       groq_key: data.groq_key || '',
+      gmail_email: data.gmail_email || '',
+      gmail_app_password: data.gmail_app_password || '',
     });
   } catch {
-    return NextResponse.json({ vercel_token: '', deepseek_key: '', groq_key: '' });
+    return NextResponse.json({
+      vercel_token: '', deepseek_key: '', groq_key: '',
+      gmail_email: '', gmail_app_password: '',
+    });
   }
 }
 
@@ -38,15 +46,21 @@ export async function POST(request: NextRequest) {
     // Update only provided fields
     if (body.vercel_token !== undefined) {
       config.vercel_token = body.vercel_token || undefined;
-      process.env.VERCEL_API_TOKEN = body.vercel_token || '';
     }
     if (body.deepseek_key !== undefined) {
       config.deepseek_key = body.deepseek_key || undefined;
-      process.env.DEEPSEEK_API_KEY = body.deepseek_key || '';
     }
     if (body.groq_key !== undefined) {
       config.groq_key = body.groq_key || undefined;
-      process.env.GROQ_API_KEY = body.groq_key || '';
+    }
+    if (body.gmail_email !== undefined) {
+      config.gmail_email = body.gmail_email || undefined;
+    }
+    if (body.gmail_app_password !== undefined) {
+      config.gmail_app_password = body.gmail_app_password || undefined;
+    }
+    if (body.from_name !== undefined) {
+      config.from_name = body.from_name || undefined;
     }
 
     // Remove undefined keys
