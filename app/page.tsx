@@ -539,8 +539,11 @@ export default function Home() {
     }
   }
 
+  // Modal endpoint - direct call from browser
+  const MODAL_BATCH_URL = 'https://theakpanobong--lead-to-site-process-batch-endpoint.modal.run';
+
   async function startPipeline() {
-    if (!runId) return;
+    if (!runId || leads.length === 0) return;
     setError(null);
     setPipelineStatus('running');
     setResults([]);
@@ -554,40 +557,47 @@ export default function Home() {
       return next;
     });
 
-    eventSourceRef.current?.close();
-    const sse = new EventSource(`/api/pipeline/${runId}/run`);
-    eventSourceRef.current = sse;
+    // Call Modal directly from browser - no filesystem involved
+    try {
+      const res = await fetch(MODAL_BATCH_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ leads }),
+      });
 
-    sse.onmessage = (e) => {
-      try {
-        const ev: SSEEvent = JSON.parse(e.data);
-        if (ev.status === 'complete') {
-          sse.close();
-          setPipelineStatus('completed');
-          getRunStatus(runId).then(d => {
-            setLeadProgress(d.lead_progress || {});
-            setResults(d.results || []);
-          });
-          return;
-        }
-        if (ev.status === 'error') {
-          setError(ev.error || 'Pipeline error');
-          sse.close();
-          setPipelineStatus('error');
-          return;
-        }
-        if (ev.id) {
-          setLeadProgress(prev => ({
-            ...prev,
-            [ev.id!]: prev[ev.id!]
-              ? { ...prev[ev.id!], status: ev.status as LeadProgress['status'], vercel_url: ev.vercel_url, html_size: ev.html_size, error: ev.error, email_subject: ev.email_subject, email_body: ev.email_body, send_status: ev.send_status, send_error: ev.send_error }
-              : { id: ev.id!, company: ev.company || ev.id!, status: ev.status as LeadProgress['status'], vercel_url: ev.vercel_url, html_size: ev.html_size, error: ev.error, email_subject: ev.email_subject, email_body: ev.email_body, send_status: ev.send_status, send_error: ev.send_error },
-          }));
-        }
-      } catch {}
-    };
+      if (!res.ok) {
+        throw new Error(`Modal error: ${res.status} ${res.statusText}`);
+      }
 
-    sse.onerror = () => { sse.close(); setPipelineStatus(p => p === 'running' ? 'error' : p); };
+      const data = await res.json();
+      const results = data.results || [];
+
+      // Update lead progress with results
+      const newProgress: Record<string, LeadProgress> = {};
+      for (const result of results) {
+        const lid = result.lead_id || result.company_name || 'unknown';
+        newProgress[lid] = {
+          id: lid,
+          company: result.company_name || lid,
+          status: result.success ? 'done' : 'error',
+          vercel_url: result.final_url,
+          html_size: result.html_size,
+          error: result.error,
+          email_subject: result.email_subject,
+          email_body: result.email_body,
+          send_status: result.send_status,
+          send_error: result.send_error,
+        };
+      }
+      setLeadProgress(newProgress);
+      setResults(results);
+      setPipelineStatus('completed');
+
+    } catch (err) {
+      console.error('[Modal call error]', err);
+      setError(String(err));
+      setPipelineStatus('error');
+    }
   }
 
   function handleSaveSettings(s: AppSettings) {
